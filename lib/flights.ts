@@ -10,6 +10,8 @@ interface FlightData {
   date: string;
   time: string;
   flightNumber: string;
+  bookingRefs: string[];
+  messageIds: string[];
 }
 
 export async function getFlights(options: {
@@ -18,8 +20,7 @@ export async function getFlights(options: {
   format: "JSON" | "CSV";
   destination: "Print to console" | "Save to file" | "Both";
 }) {
-  const allFlights: FlightData[] = [];
-  const uniqueFlights = new Set<string>();
+  const aggregatedFlights = new Map<string, FlightData>();
 
   for (const account of options.accounts) {
     console.log(`Fetching flights for ${account.email}...`);
@@ -27,28 +28,41 @@ export async function getFlights(options: {
     const results = await fetchFlightEmailsForAccount(auth, options.dateRange);
 
     for (const r of results) {
+      if (!r.iatas[0] || !r.iatas[1] || !r.dates[0] || !r.flightNumbers[0]) {
+        continue;
+      }
       const dep = r.iatas[0];
       const arr = r.iatas[1];
       const date = r.dates[0];
-      const time = r.times[0];
+      const time = r.times[0] || "";
       const flightNumber = r.flightNumbers[0];
       const flightId = `${dep}-${arr}-${date}-${time}-${flightNumber}`;
 
-      if (uniqueFlights.has(flightId)) {
-        continue;
-      }
-      uniqueFlights.add(flightId);
+      const existingFlight = aggregatedFlights.get(flightId);
 
-      allFlights.push({
-        subject: r.subject,
-        departureIata: dep,
-        arrivalIata: arr,
-        date,
-        time,
-        flightNumber,
-      });
+      if (existingFlight) {
+        existingFlight.messageIds.push(r.messageId);
+        r.bookingRefs.forEach((ref) => {
+          if (!existingFlight.bookingRefs.includes(ref)) {
+            existingFlight.bookingRefs.push(ref);
+          }
+        });
+      } else {
+        aggregatedFlights.set(flightId, {
+          subject: r.subject,
+          departureIata: dep,
+          arrivalIata: arr,
+          date,
+          time,
+          flightNumber,
+          bookingRefs: r.bookingRefs,
+          messageIds: [r.messageId],
+        });
+      }
     }
   }
+
+  const allFlights = Array.from(aggregatedFlights.values());
 
   handleOutput(allFlights, options.format, options.destination);
 }
@@ -76,7 +90,7 @@ function handleOutput(
     outputData = JSON.stringify(flights, null, 2);
   } else {
     const headers =
-      'Date,"Flight number",From,To,"Dep time","Arr time",Duration,Airline,Aircraft,Registration,"Seat number","Seat type","Flight class","Flight reason",Note,Dep_id,Arr_id,Airline_id,Aircraft_id';
+      'Date,"Flight number",From,To,"Dep time","Arr time",Duration,Airline,Aircraft,Registration,"Seat number","Seat type","Flight class","Flight reason",Note,"Message IDs",Dep_id,Arr_id,Airline_id,Aircraft_id,"Booking Reference"';
     const rows = flights
       .map((f) => {
         const row = [
@@ -95,10 +109,12 @@ function handleOutput(
           "", // Flight class
           "", // Flight reason
           `"${f.subject.replace(/"/g, '""')}"`, // Note
+          `"${f.messageIds.join(",")}"`,
           "", // Dep_id
           "", // Arr_id
           "", // Airline_id
           "", // Aircraft_id
+          `"${f.bookingRefs.join(",")}"`,
         ];
         return row.join(",");
       })

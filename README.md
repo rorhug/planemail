@@ -2,6 +2,8 @@
 
 This project is a command-line interface (CLI) tool for scraping flight information from your Gmail accounts. It authenticates with the Gmail API, searches for flight-related emails (like confirmations and e-tickets), and extracts key information into a structured format.
 
+_This is a work in progress and is not extremely accurate. There are false positives and true negatives._
+
 ## Features
 
 - **Interactive CLI**: Easy-to-use menu for managing accounts and fetching data.
